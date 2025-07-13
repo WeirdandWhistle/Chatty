@@ -3,9 +3,28 @@
 	
 <head>
 	<title>chatty</title>
+	<link type="text/css" rel="stylesheet" href="/main.css">
 </head>
 <body>
-	<h1>Welcome to Chatty!</h1>
+	<h1 id="title">Welcome to Chatty!</h1>
+	<hr>
+	<div class="main">
+		<ul id="list">
+			<li>this is the staret of yall message</li>
+		</ul>
+	</div>
+	<hr>
+	<div class="text-bar" onclick="focusTextbox();" >
+		<label class="text-placeholder"contenteditable="false">
+			Type your message here
+		</label>
+		<div class="type-here" contenteditable="true" tabindex="5">
+			<br>
+		</div>
+		<div class="send-button" onclick="sendMessage();">
+			&#11165;
+		</div>
+	</div>
 </body>
 <script src="/app.js"></script>
 </html>

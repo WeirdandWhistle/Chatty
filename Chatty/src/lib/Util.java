@@ -5,7 +5,12 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.Socket;
+import java.net.URI;
+import java.nio.file.Files;
 import java.util.HashMap;
+import java.util.Scanner;
 
 public abstract class Util {
 
@@ -49,6 +54,45 @@ public abstract class Util {
 		return "well that sucks man. good luck. sry there wasn't a error.";
 
 	}
+	public static String parseBody(InputStream is, String end) {
+		StringBuilder textBuilder = new StringBuilder();
+		int byteData;
+		try {
+			// System.out.println("ok better");
+			InputStreamReader read = new InputStreamReader(is);
+			// System.out.println("if this passice then what?");
+			while ((byteData = read.read()) != -1) {
+
+				// System.out.print((char) byteData);
+
+				textBuilder.append((char) byteData);
+
+				// System.out.println("that ?");
+				String current = textBuilder.toString();
+
+				// System.out.println("this ?");
+				if (current.length() >= end.length()
+						&& current.substring(current.length() - end.length()).equals(end)) {
+					// System.out.println("🐢🐍🐉 snake:" + current
+					// .substring(current.length() - end.length()).replace("\r",
+					// "\\r"));
+					return current;
+				}
+			}
+			// System.out.println("im sorry what?!?!!?💀💀💀💀💀");
+
+			// System.out.println("pb mehtod:" + method);
+
+			// System.out.println("pb out!");
+			String requestData = textBuilder.toString();
+
+			return requestData;
+		} catch (IOException e) {
+			System.out.println("pb error");
+			e.printStackTrace();
+		}
+		return null;
+	}
 	public static String fromBytes(byte[] bytes) {
 		StringBuilder builder = new StringBuilder();
 		for (int i = 0; i < bytes.length; i++) {
@@ -86,5 +130,95 @@ public abstract class Util {
 			combined[i] = i < one.length ? one[i] : two[i - one.length];
 		}
 		return combined;
+	}
+	public static String readLine(InputStream is) throws IOException {
+		StringBuilder sb = new StringBuilder();
+		int prev = -1;
+		int curr;
+
+		while ((curr = is.read()) != -1) {
+			if (prev == '\r' && curr == '\n') {
+				sb.setLength(sb.length() - 1); // remove the '\r'
+				break;
+			}
+			sb.append((char) curr);
+			prev = curr;
+		}
+
+		if (curr == -1 && sb.length() == 0) {
+			return null; // End of stream
+		}
+
+		return sb.toString();
+	}
+
+	public static void serverFile(URI uri, Socket client, HashMap<URI, URI> redirect)
+			throws IOException {
+		OutputStream out = client.getOutputStream();
+		if (redirect != null) {
+			URI newURI = redirect.get(uri);
+			if (newURI != null) {
+				uri = newURI;
+			}
+		}
+
+		File file = new File(uri.getPath().replaceFirst("/", ""));
+		if (file.exists()) {
+			// System.out.println("uri:" + file.getPath());
+			HttpResponse res = new HttpResponse();
+			res.setType(Util.memeType(file));
+			res.setBody(Files.readAllBytes(file.toPath()));
+			out.write(res.create());
+		} else {
+
+			// System.out.println("not uri:" + file.getPath());
+			HttpResponse res = new HttpResponse();
+			res.notFound();
+			out.write(res.create());
+		}
+		client.close();
+	}
+	public static void serverFile(URI uri, Socket client) throws IOException {
+		serverFile(uri, client, null);
+	}
+	public static HashMap<String, String> getHeaders(Scanner scan) {
+
+		HashMap<String, String> headers = new HashMap<>();
+
+		String line = null;
+		boolean canRead = scan.hasNextLine();
+		while (canRead) {
+			canRead = scan.hasNextLine();
+			line = scan.nextLine();
+			// System.out.println("line:" + line);
+			if (line == null || line.isEmpty()) {
+				canRead = false;
+			} else {
+				headers.put(line.split(":", 2)[0], line.split(":", 2)[1].trim());
+			}
+		}
+		return headers;
+
+	}
+	public static HashMap<String, String> parseQuery(String query) {
+
+		String[] allQuery = query.split("&");
+		HashMap<String, String> map = new HashMap<>();
+
+		for (String pair : allQuery) {
+			String[] pear = pair.split("=");
+			map.put(pear[0], pear[1]);
+			// System.out.println("0 " + pear[0] + " 1 " + pear[1]);
+		}
+
+		return map;
+	}
+
+	public static void printHexBytes(byte[] arr) {
+		StringBuilder sb = new StringBuilder();
+		for (byte b : arr) {
+			sb.append(String.format("%02X ", b));
+		}
+		System.out.println(sb.toString());
 	}
 }
