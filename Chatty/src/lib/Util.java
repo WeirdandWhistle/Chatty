@@ -9,6 +9,7 @@ import java.io.OutputStream;
 import java.net.Socket;
 import java.net.URI;
 import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Scanner;
 
@@ -220,5 +221,28 @@ public abstract class Util {
 			sb.append(String.format("%02X ", b));
 		}
 		System.out.println(sb.toString());
+	}
+	public void arrList(ArrayList<Byte> al, byte[] b) {
+		for (byte by : b) {
+			al.add(by);
+		}
+	}
+	public static String edian(int num, int level) {
+		level -= 1;
+		byte x = (byte) ((num >> (level * 8)) & 0xff);
+
+		return String.format("%02x", x);
+
+	}
+	public static byte[] xor(byte[] a, byte[] b) {
+		if (a.length != b.length) {
+			throw new IllegalArgumentException("length of a and b must match!");
+		}
+
+		byte[] c = new byte[a.length];
+		for (int i = 0; i < b.length; i++) {
+			c[i] = (byte) (a[i] ^ b[i]);
+		}
+		return c;
 	}
 }

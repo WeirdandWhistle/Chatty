@@ -1,17 +1,43 @@
 package lib;
 
-import java.io.File;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigInteger;
 import java.net.Socket;
-import java.net.SocketTimeoutException;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
+import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.Signature;
+import java.security.SignatureException;
 import java.security.interfaces.XECPublicKey;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.NamedParameterSpec;
+import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.spec.XECPublicKeySpec;
+import java.util.Arrays;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.Random;
+
+import javax.crypto.BadPaddingException;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.KeyAgreement;
+import javax.crypto.NoSuchPaddingException;
+
+import org.bouncycastle.crypto.digests.SHA256Digest;
+import org.bouncycastle.crypto.macs.HMac;
+import org.bouncycastle.crypto.params.KeyParameter;
+import org.bouncycastle.util.encoders.Hex;
 
 public class TLS {
 
@@ -49,6 +75,10 @@ public class TLS {
 	public static final int SERVER_NAME = 0;
 
 	public static final byte[] TLS_AES_128_GCM_SHA256 = {0x13, 0x01};
+
+	public static final byte[] rsa_pkcs1_sha256 = {0x04, 0x01};
+
+	public static final String SERVER_VERIFY_CONTEXT_STRING = "TLS 1.3, server CertificateVerify";
 	// headers
 	byte type; // 0
 	byte[] version = new byte[2]; // 1-2
@@ -58,8 +88,12 @@ public class TLS {
 
 	// body?
 
-	public TLS create(Socket c) throws IOException, NoSuchAlgorithmException {
+	public TLS create(Socket c) throws IOException, NoSuchAlgorithmException,
+			InvalidKeySpecException, InvalidKeyException, SignatureException,
+			NoSuchPaddingException, InvalidAlgorithmParameterException, IllegalBlockSizeException,
+			BadPaddingException, CloneNotSupportedException {
 		InputStream in = c.getInputStream();
+		c.setSoTimeout(500);
 
 		type = (byte) in.read();
 		System.out.println("type:" + type);
@@ -70,17 +104,24 @@ public class TLS {
 		length[1] = (byte) in.read();
 
 		if (type == HANDSHAKE) {
+
+			MessageDigest toHash = MessageDigest.getInstance("SHA256");
+
 			byte message_type = (byte) in.read();// 5
 			byte[] second_length = {(byte) in.read(), (byte) in.read(), (byte) in.read()};// 6-8
 																							// 3
-			int handshake_length = (int) ((second_length[0] << 16) | (second_length[1] << 8)
-					| (second_length[2])); // bytes
+			toHash.update(message_type);
+			toHash.update(second_length);
+			int handshake_length = (int) (((second_length[0] & 0xFF) << 16)
+					| ((second_length[1] & 0xFF) << 8) | ((second_length[2] & 0xFF))); // bytes
+
 			// long
 
 			byte[] hsd = new byte[handshake_length];
 			for (int i = 0; i < handshake_length; i++) {
 				hsd[i] = (byte) in.read();
 			}
+			toHash.update(hsd);
 
 			int cursor = 0;
 			// to keep track of the offsets of fixed values in
@@ -100,10 +141,12 @@ public class TLS {
 
 			byte sessionLength = hsd[cursor];
 			cursor += 1;// for the length
+			System.out.println("sessionLength " + sessionLength);
 			byte[] sessionID = new byte[sessionLength];
 			for (int i = 0; i < sessionLength; i++) {
 				sessionID[i] = hsd[i + cursor];
 			}
+			System.out.println("sessionID.length " + sessionID.length);
 			cursor += sessionLength; // for the sessionID
 
 			int cipherSLen = (((hsd[cursor] & 255) << 8) | (hsd[cursor + 1] & 255));
@@ -126,9 +169,11 @@ public class TLS {
 			int extensionLen = (short) (((hsd[cursor] & 255) << 8) | (hsd[cursor + 1] & 255));
 			cursor += 2; // for extension length
 
+			int extensionEnd = cursor + extensionLen;
+
 			HashMap<Integer, byte[]> extensions = new HashMap<>();
 
-			while (cursor + 4 <= hsd.length) {
+			while (cursor + 4 <= extensionEnd) {
 
 				int ex_type = (((hsd[cursor] & 255) << 8) | (hsd[cursor + 1] & 255));
 				cursor += 2; // for type
@@ -149,12 +194,17 @@ public class TLS {
 
 				extensions.put(ex_type, ex);
 
+				// if (ex_type == KEY_SHARE) {
+				// System.out.println("full hex dump from key share: " +
+				// Hex.toHexString(ex));
+				// }
+
 				cursor += ex_len;
 
 			}
 
 			// time to send the server hello
-			byte[] recordHeaders = {HANDSHAKE, 3, TLS12, -1, -1};// add lenght
+			byte[] recordHeaders = {HANDSHAKE, 3, TLS13, -1, -1};// add lenght
 																	// at end
 
 			byte[] startHandshake = {SEVER_HELLO, -1, -1, -1};// add length
@@ -189,7 +239,8 @@ public class TLS {
 				System.out.println("doenst have tls 1.3");
 				return null;
 			}
-			sv = new byte[]{(SUPPORTED_VERSION >> 8) & 255, (SUPPORTED_VERSION) & 255, 0, 2, 3, 4};
+			sv = new byte[]{(SUPPORTED_VERSION >> 8) & 255, (SUPPORTED_VERSION) & 255, 0, 2, 3,
+					TLS13};
 			// setsd the extenion supported versions to tls 1.3 or 0x0304
 
 			byte[] sa = extensions.get(SIGNATURE_ALGORITHMS);
@@ -232,12 +283,57 @@ public class TLS {
 
 			byte[] ex = Util.add(sv, ks);
 
-			System.out.println("ex length " + ex.length);
-			Util.printHexBytes(ex);
+			// System.out.println("ex length " + ex.length);
+			// Util.printHexBytes(ex);
+
+			byte[] clientPubKey = extensions.get(KEY_SHARE);
+
+			ByteBuffer buf = ByteBuffer.wrap(clientPubKey);
+
+			int groupID = buf.getShort();
+			while (buf.hasRemaining()) {
+				groupID = buf.getShort();
+
+				if (groupID == 0x001D) {
+					break;
+				}
+				int discardLen = buf.getShort() & 0xFFFF;
+				System.out.println("advace buffer " + discardLen);
+				buf.position(buf.position() + discardLen);
+			}
+
+			if (groupID == 0x001D) {
+				int keyLen = buf.getShort() & 0xFFFF;
+
+				clientPubKey = new byte[keyLen];
+				buf.get(clientPubKey);
+
+			} else {
+				System.err.println("couldn't find a X25519 entry in  keyshare");
+				return null;
+			}
+
+			System.out.println("groupID " + groupID);
+			System.out.println("clientPubKey.length " + clientPubKey.length);
+
+			NamedParameterSpec paramSpec = new NamedParameterSpec("X25519");
+
+			KeyFactory kf = KeyFactory.getInstance("X25519");
+			PublicKey clientKeyPublicKey = kf.generatePublic(
+					new XECPublicKeySpec(paramSpec, new BigInteger(1, clientPubKey)));
+
+			KeyAgreement ka = KeyAgreement.getInstance("XDH");
+
+			ka.init(key.getPrivate());
+			ka.doPhase(clientKeyPublicKey, true);
+
+			byte[] sharedSecret = ka.generateSecret();
 
 			byte[] serverHello = Util.add(version, serverRandom);
+			System.out.println("sessionLength " + sessionLength);
 			serverHello = Util.add(serverHello, new byte[]{sessionLength});
 			serverHello = Util.add(serverHello, sessionID);
+			// serverHello = Util.add(serverHello, new byte[]{0x00, 0x02});
 			serverHello = Util.add(serverHello, TLS_AES_128_GCM_SHA256);
 			serverHello = Util.add(serverHello, new byte[]{compressionMethod});
 			serverHello = Util.add(serverHello,
@@ -252,93 +348,201 @@ public class TLS {
 			recordHeaders[3] = (byte) ((handshakeLength >> 8) & 0xFF);
 			recordHeaders[4] = (byte) (handshakeLength & 0xFF);
 
-			byte[] out = Util.add(recordHeaders, Util.add(startHandshake, serverHello));
+			serverHello = Util.add(startHandshake, serverHello);
 
-			c.getOutputStream().write(out);
-			System.out.println("i guess it worked! ez");
+			toHash.update(serverHello);
 
-			c.setSoTimeout(1000);
+			byte[] out = Util.add(recordHeaders, serverHello);
 
-			// try {
-			// System.out.println("more?");
-			// byte type = (byte) in.read();
-			// System.out.println("type " + type);
-			// if (type == ALERT) {
-			//
-			// byte[] extra = {(byte) in.read(), (byte) in.read(), (byte)
-			// in.read(),
-			// (byte) in.read()};
-			// byte level = (byte) in.read();
-			// byte des = (byte) in.read();
-			//
-			// System.out.println(level + " " + des);
-			// }
-			// } catch (SocketTimeoutException e) {
-			// System.out.println("NOPE thats it!");
-			// e.printStackTrace();
-			// }
-			recordHeaders = new byte[]{HANDSHAKE, 0x03, TLS12, -1, -1};
-			byte[] encryptedExtensions = {ENCRYPTED_EXTENSIONS, 0, 0, 2, 0, 0};// add
-																				// length
-																				// later
-			recordHeaders[3] = (byte) ((encryptedExtensions.length >> 8) & 255);
-			recordHeaders[4] = (byte) (encryptedExtensions.length & 255);
-
-			out = Util.add(recordHeaders, encryptedExtensions);
-
-			c.getOutputStream().write(out);
-
-			try {
-				System.out.println("more?");
-				byte type = (byte) in.read();
-				System.out.println("type " + type);
-				in.read();
-				in.read();
-				int length = in.read() << 8 | in.read();
-				System.out.println("len " + length);
-				byte[] ran = new byte[length];
-				for (int i = 0; i < length; i++) {
-					ran[i] = (byte) in.read();
-				}
-				Util.printHexBytes(ran);
-			} catch (SocketTimeoutException e) {
-				System.out.println("NOPE thats it!");
-				e.printStackTrace();
-			}
-
-			byte[] cert;
-			cert = Files.readAllBytes(new File("cert.der").toPath());
-
-			recordHeaders = new byte[]{HANDSHAKE, 0x03, TLS12, -1, -1};
-
-			byte[] certifacte = {CERTIFICATE, -1, -1, -1, (byte) ((cert.length >> 16) & 255),
-					(byte) ((cert.length >> 8) & 255), (byte) (cert.length & 255)};
-
-			certifacte = Util.add(certifacte, cert);
-			certifacte = Util.add(certifacte, new byte[]{0x00, 0x00});
-
-			recordHeaders[3] = (byte) ((certifacte.length >> 8) & 255);
-			recordHeaders[4] = (byte) ((certifacte.length) & 255);
-
-			int cll = 3 + cert.length + 2;
-			certifacte[1] = (byte) ((cll >> 16) & 255);
-			certifacte[2] = (byte) ((cll >> 8) & 255);
-			certifacte[3] = (byte) ((cll) & 255);
-
-			out = Util.add(recordHeaders, certifacte);
-
-			System.out.println("out bytes!");
+			System.out.println("full server hello hexdump: ");
 			Util.printHexBytes(out);
 
 			c.getOutputStream().write(out);
 
-			recordHeaders = new byte[]{HANDSHAKE, 0x03, TLS12, -1, -1};
+			System.out.println("cant read anything affter serverHello");
+			System.out.println("i guess it worked! ez");
+
+			c.setSoTimeout(1000);
+
+			recordHeaders = new byte[]{APPLICATION, 0x03, TLS12, -1, -1};
+			byte[] encryptedExtensions = {ENCRYPTED_EXTENSIONS, 0, 0, 2, 0, 0};
+
+			byte[] transcript_hash = ((MessageDigest) (toHash.clone())).digest();
+
+			KeySchedule keys = KeySchedule.getHandshake(sharedSecret, transcript_hash);
+
+			byte[] plaintext = Util.add(encryptedExtensions, new byte[]{HANDSHAKE});
+			toHash.update(encryptedExtensions);
+
+			byte[] ciphertext = keys.encrypt().doFinal(plaintext);
+
+			recordHeaders[3] = (byte) ((ciphertext.length >> 8) & 255);
+			recordHeaders[4] = (byte) (ciphertext.length & 255);
+
+			out = Util.add(recordHeaders, ciphertext);
+
+			c.getOutputStream().write(out);
+
+			System.out.println("can check anything affter sneding encytped extensions");
+
+			// ------------------------------------
+			byte[] cert;
+			cert = Files.readAllBytes(Paths.get("cert.der"));
+
+			System.out.println("cert.length " + cert.length);
+
+			recordHeaders = new byte[]{APPLICATION, 0x03, TLS12, -1, -1};
+
+			final int fullCertEntryLength = cert.length + 3 + 2;
+
+			byte[] certifacte = {CERTIFICATE, -1, -1, -1, 0x00, // -1 = length
+					(byte) ((fullCertEntryLength >> 16) & 0xFF), // first
+					(byte) ((fullCertEntryLength >> 8) & 0xFF), // second
+					(byte) (fullCertEntryLength & 0xFF), // third
+					(byte) ((cert.length >> 16) & 0xFF), // length for the cert
+					(byte) ((cert.length >> 8) & 0xFF), // stuff
+					(byte) (cert.length & 0xFF)};// spoacing
+
+			certifacte = Util.add(certifacte, cert);
+			certifacte = Util.add(certifacte, new byte[]{0x00, 0x00});
+
+			int totalLength = certifacte.length - 4;
+			certifacte[1] = (byte) ((totalLength >> 16) & 0xFF);
+			certifacte[2] = (byte) ((totalLength >> 8) & 0xFF);
+			certifacte[3] = (byte) ((totalLength) & 0xFF);
+
+			plaintext = Util.add(certifacte, new byte[]{HANDSHAKE});
+			toHash.update(plaintext);
+			System.out.println("certifacte plaintext  hexdump: " + Hex.toHexString(plaintext));
+
+			ciphertext = keys.encrypt().doFinal(plaintext);
+
+			recordHeaders[3] = (byte) ((ciphertext.length >> 8) & 0xFF);
+			recordHeaders[4] = (byte) ((ciphertext.length) & 0xFF);
+
+			out = Util.add(recordHeaders, ciphertext);
+
+			// -----------------------------
+			// System.out.println("type " + in.read());
+			c.getOutputStream().write(out);
+
+			System.out.println("cant check anything affter cert");
+
+			recordHeaders = new byte[]{APPLICATION, 0x03, TLS12, -1, -1};
 
 			byte[] certVerify = {CERTIFICATE_VERIFY, -1, -1, -1};
+
+			Signature sig = Signature.getInstance("SHA256withRSA");
+
+			String sk = new String(Files.readAllBytes(Paths.get("key.pem")));
+
+			sk = sk.replace("-----BEGIN PRIVATE KEY-----", "")
+					.replace("-----END PRIVATE KEY-----", "").replaceAll("\\s", "");
+
+			PKCS8EncodedKeySpec encodedKey = new PKCS8EncodedKeySpec(
+					Base64.getDecoder().decode(sk));
+
+			kf = KeyFactory.getInstance("RSA");
+
+			PrivateKey secKey = kf.generatePrivate(encodedKey);
+
+			byte[] octet = new byte[64];
+			Arrays.fill(octet, (byte) 0x20);
+
+			byte[] contextString = SERVER_VERIFY_CONTEXT_STRING.getBytes();
+
+			byte[] hash = ((MessageDigest) (toHash.clone())).digest();
+
+			ByteArrayOutputStream toSign = new ByteArrayOutputStream();
+			toSign.write(octet);
+			toSign.write(contextString);
+			toSign.write(0x00);
+			toSign.write(hash);
+
+			sig.initSign(secKey);
+
+			sig.update(toSign.toByteArray());
+
+			byte[] signed = sig.sign();
+
+			certVerify = Util.add(certVerify, rsa_pkcs1_sha256);
+			certVerify = Util.add(certVerify, Util.add(
+					new byte[]{(byte) ((signed.length >> 8) & 255), (byte) ((signed.length) & 255)},
+					signed));
+
+			int certVerifyLength = rsa_pkcs1_sha256.length + 2 + signed.length;
+
+			// Fill bytes 1, 2, 3 of certVerify header with certVerifyLength as
+			// 3-byte big-endian
+			certVerify[1] = (byte) ((certVerifyLength >> 16) & 0xFF);
+			certVerify[2] = (byte) ((certVerifyLength >> 8) & 0xFF);
+			certVerify[3] = (byte) (certVerifyLength & 0xFF);
+
+			plaintext = Util.add(certVerify, new byte[]{HANDSHAKE});
+			toHash.update(plaintext);
+
+			ciphertext = keys.encrypt().doFinal(plaintext);
+
+			recordHeaders[3] = (byte) ((ciphertext.length >> 8) & 255);
+			recordHeaders[4] = (byte) ((ciphertext.length) & 255);
+
+			out = Util.add(recordHeaders, ciphertext);
+
+			// System.out.println("is socket gonna work? " +
+			// c.isOutputShutdown());
+
+			c.getOutputStream().write(out);
+
+			byte[] finshed_key = keys.getFinishedKey();
+
+			HMac hmac = new HMac(new SHA256Digest());
+
+			hmac.init(new KeyParameter(finshed_key));
+
+			byte[] mes = ((MessageDigest) (toHash.clone())).digest();
+			hmac.update(mes, 0, mes.length);
+
+			byte[] verify_data = new byte[hmac.getMacSize()];
+
+			hmac.doFinal(verify_data, 0);
+
+			recordHeaders = new byte[]{APPLICATION, 0x03, TLS12, -1, -1};
+
+			byte[] finished = {FINSHED, (byte) ((verify_data.length << 16) & 0xFF),
+					(byte) ((verify_data.length << 8) & 0xFF),
+					(byte) ((verify_data.length) & 0xFF)};
+
+			finished = Util.add(finished, verify_data);
+
+			plaintext = Util.add(finished, new byte[]{HANDSHAKE});
+
+			ciphertext = keys.encrypt().doFinal(finished);
+
+			recordHeaders[3] = (byte) ((ciphertext.length << 8) & 0xFF);
+			recordHeaders[4] = (byte) ((ciphertext.length) & 0xFF);
+
+			out = Util.add(recordHeaders, finished);
+
+			c.getOutputStream().write(out);
+
+			try {
+				System.out.println("end out:" + in.read());
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+
+			// System.out.println("type" + in.read());
 
 		}
 		System.out.println("thats everything hope it worked!");
 		return null;
+	}
+	public static byte[] encodeSeqNum(long seqNum) {
+		byte[] result = new byte[12];
+		for (int i = 0; i < 8; i++) {
+			result[11 - i] = (byte) (seqNum >>> (8 * i));
+		}
+		return result;
 	}
 
 }
