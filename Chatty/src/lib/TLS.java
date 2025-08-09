@@ -16,10 +16,11 @@ import java.security.KeyPairGenerator;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
-import java.security.PublicKey;
 import java.security.Signature;
 import java.security.SignatureException;
+import java.security.interfaces.XECPrivateKey;
 import java.security.interfaces.XECPublicKey;
+import java.security.spec.ECGenParameterSpec;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.NamedParameterSpec;
 import java.security.spec.PKCS8EncodedKeySpec;
@@ -30,6 +31,7 @@ import java.util.HashMap;
 import java.util.Random;
 
 import javax.crypto.BadPaddingException;
+import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.KeyAgreement;
 import javax.crypto.NoSuchPaddingException;
@@ -79,6 +81,7 @@ public class TLS {
 	public static final byte[] rsa_pkcs1_sha256 = {0x04, 0x01};
 
 	public static final String SERVER_VERIFY_CONTEXT_STRING = "TLS 1.3, server CertificateVerify";
+	public static final int TAG_LENGTH = 16;
 	// headers
 	byte type; // 0
 	byte[] version = new byte[2]; // 1-2
@@ -277,22 +280,16 @@ public class TLS {
 			byte[] rawPubKey = xecPub.getU().toByteArray(); // 32 bytes
 
 			System.out.println("key length:" + rawPubKey.length);
-
 			byte[] ks = {(KEY_SHARE >> 8) & 255, (KEY_SHARE & 255), 0, 36, 0, 0x1d, 0, 32};
 			ks = Util.add(ks, rawPubKey);
-
 			byte[] ex = Util.add(sv, ks);
-
-			// System.out.println("ex length " + ex.length);
-			// Util.printHexBytes(ex);
-
 			byte[] clientPubKey = extensions.get(KEY_SHARE);
 
 			ByteBuffer buf = ByteBuffer.wrap(clientPubKey);
 
 			int groupID = buf.getShort();
 			while (buf.hasRemaining()) {
-				groupID = buf.getShort();
+				groupID = buf.getShort() & 0xFFFF;
 
 				if (groupID == 0x001D) {
 					break;
@@ -316,17 +313,20 @@ public class TLS {
 			System.out.println("groupID " + groupID);
 			System.out.println("clientPubKey.length " + clientPubKey.length);
 
-			NamedParameterSpec paramSpec = new NamedParameterSpec("X25519");
+			NamedParameterSpec paramSpec = NamedParameterSpec.X25519;
+
+			ECGenParameterSpec ecSpec = new ECGenParameterSpec("X25519");
 
 			KeyFactory kf = KeyFactory.getInstance("X25519");
-			PublicKey clientKeyPublicKey = kf.generatePublic(
-					new XECPublicKeySpec(paramSpec, new BigInteger(1, clientPubKey)));
+			XECPublicKey clientKeyPublicKey = (XECPublicKey) kf
+					.generatePublic(new XECPublicKeySpec(ecSpec, new BigInteger(1, clientPubKey)));
 
-			KeyAgreement ka = KeyAgreement.getInstance("XDH");
+			XECPrivateKey secretKey = (XECPrivateKey) key.getPrivate();
 
-			ka.init(key.getPrivate());
+			KeyAgreement ka = KeyAgreement.getInstance("X25519");
+
+			ka.init(secretKey);
 			ka.doPhase(clientKeyPublicKey, true);
-
 			byte[] sharedSecret = ka.generateSecret();
 
 			byte[] serverHello = Util.add(version, serverRandom);
@@ -358,32 +358,39 @@ public class TLS {
 			Util.printHexBytes(out);
 
 			c.getOutputStream().write(out);
-
-			System.out.println("cant read anything affter serverHello");
-			System.out.println("i guess it worked! ez");
-
 			c.setSoTimeout(1000);
 
 			recordHeaders = new byte[]{APPLICATION, 0x03, TLS12, -1, -1};
 			byte[] encryptedExtensions = {ENCRYPTED_EXTENSIONS, 0, 0, 2, 0, 0};
 
 			byte[] transcript_hash = ((MessageDigest) (toHash.clone())).digest();
+			System.out.println("transcript_hash " + Hex.toHexString(transcript_hash));
+
+			HKDF.runTestCases();
 
 			KeySchedule keys = KeySchedule.getHandshake(sharedSecret, transcript_hash);
 
 			byte[] plaintext = Util.add(encryptedExtensions, new byte[]{HANDSHAKE});
 			toHash.update(encryptedExtensions);
 
-			byte[] ciphertext = keys.encrypt().doFinal(plaintext);
+			Cipher aes = keys.encrypt();
 
-			recordHeaders[3] = (byte) ((ciphertext.length >> 8) & 255);
-			recordHeaders[4] = (byte) (ciphertext.length & 255);
+			int cipherLength = plaintext.length + TAG_LENGTH;
+
+			recordHeaders[3] = (byte) ((cipherLength >> 8) & 255);
+			recordHeaders[4] = (byte) (cipherLength & 255);
+
+			aes.updateAAD(recordHeaders);
+
+			byte[] ciphertext = aes.doFinal(plaintext);
 
 			out = Util.add(recordHeaders, ciphertext);
 
 			c.getOutputStream().write(out);
 
-			System.out.println("can check anything affter sneding encytped extensions");
+			System.out.println("encryptedExtensions out: " + Hex.toHexString(out));
+			System.out.println("clientRandom " + Hex.toHexString(random));
+			keys.debugServerSecret();
 
 			// ------------------------------------
 			byte[] cert;
@@ -413,12 +420,19 @@ public class TLS {
 
 			plaintext = Util.add(certifacte, new byte[]{HANDSHAKE});
 			toHash.update(plaintext);
-			System.out.println("certifacte plaintext  hexdump: " + Hex.toHexString(plaintext));
+			// System.out.println("certifacte plaintext hexdump: " +
+			// Hex.toHexString(plaintext));
 
-			ciphertext = keys.encrypt().doFinal(plaintext);
+			aes = keys.encrypt();
 
-			recordHeaders[3] = (byte) ((ciphertext.length >> 8) & 0xFF);
-			recordHeaders[4] = (byte) ((ciphertext.length) & 0xFF);
+			cipherLength = plaintext.length + TAG_LENGTH;
+
+			recordHeaders[3] = (byte) ((cipherLength >> 8) & 0xFF);
+			recordHeaders[4] = (byte) ((cipherLength) & 0xFF);
+
+			aes.updateAAD(recordHeaders);
+
+			ciphertext = aes.doFinal(plaintext);
 
 			out = Util.add(recordHeaders, ciphertext);
 
@@ -434,13 +448,13 @@ public class TLS {
 
 			Signature sig = Signature.getInstance("SHA256withRSA");
 
-			String sk = new String(Files.readAllBytes(Paths.get("key.pem")));
+			String keypem = new String(Files.readAllBytes(Paths.get("key.pem")));
 
-			sk = sk.replace("-----BEGIN PRIVATE KEY-----", "")
+			keypem = keypem.replace("-----BEGIN PRIVATE KEY-----", "")
 					.replace("-----END PRIVATE KEY-----", "").replaceAll("\\s", "");
 
 			PKCS8EncodedKeySpec encodedKey = new PKCS8EncodedKeySpec(
-					Base64.getDecoder().decode(sk));
+					Base64.getDecoder().decode(keypem));
 
 			kf = KeyFactory.getInstance("RSA");
 
@@ -479,12 +493,18 @@ public class TLS {
 			certVerify[3] = (byte) (certVerifyLength & 0xFF);
 
 			plaintext = Util.add(certVerify, new byte[]{HANDSHAKE});
-			toHash.update(plaintext);
+			toHash.update(certVerify);
 
-			ciphertext = keys.encrypt().doFinal(plaintext);
+			aes = keys.encrypt();
+
+			cipherLength = plaintext.length + TAG_LENGTH;
 
 			recordHeaders[3] = (byte) ((ciphertext.length >> 8) & 255);
 			recordHeaders[4] = (byte) ((ciphertext.length) & 255);
+
+			aes.updateAAD(recordHeaders);
+
+			ciphertext = aes.doFinal(plaintext);
 
 			out = Util.add(recordHeaders, ciphertext);
 
@@ -516,12 +536,18 @@ public class TLS {
 
 			plaintext = Util.add(finished, new byte[]{HANDSHAKE});
 
+			aes = keys.encrypt();
+
+			cipherLength = plaintext.length + TAG_LENGTH;
+
+			recordHeaders[3] = (byte) ((cipherLength << 8) & 0xFF);
+			recordHeaders[4] = (byte) ((cipherLength) & 0xFF);
+
+			aes.updateAAD(recordHeaders);
+
 			ciphertext = keys.encrypt().doFinal(finished);
 
-			recordHeaders[3] = (byte) ((ciphertext.length << 8) & 0xFF);
-			recordHeaders[4] = (byte) ((ciphertext.length) & 0xFF);
-
-			out = Util.add(recordHeaders, finished);
+			out = Util.add(recordHeaders, ciphertext);
 
 			c.getOutputStream().write(out);
 
