@@ -313,20 +313,22 @@ public class TLS {
 			System.out.println("groupID " + groupID);
 			System.out.println("clientPubKey.length " + clientPubKey.length);
 
-			NamedParameterSpec paramSpec = NamedParameterSpec.X25519;
+			NamedParameterSpec paramSpec = new NamedParameterSpec("X25519");
 
 			ECGenParameterSpec ecSpec = new ECGenParameterSpec("X25519");
 
 			KeyFactory kf = KeyFactory.getInstance("X25519");
-			XECPublicKey clientKeyPublicKey = (XECPublicKey) kf
-					.generatePublic(new XECPublicKeySpec(ecSpec, new BigInteger(1, clientPubKey)));
+			XECPublicKeySpec clientPublicKeySpec = new XECPublicKeySpec(paramSpec,
+					new BigInteger(clientPubKey));
+
+			XECPublicKey clientPublicKey = (XECPublicKey) kf.generatePublic(clientPublicKeySpec);
 
 			XECPrivateKey secretKey = (XECPrivateKey) key.getPrivate();
 
 			KeyAgreement ka = KeyAgreement.getInstance("X25519");
 
 			ka.init(secretKey);
-			ka.doPhase(clientKeyPublicKey, true);
+			ka.doPhase(clientPublicKey, true);
 			byte[] sharedSecret = ka.generateSecret();
 
 			byte[] serverHello = Util.add(version, serverRandom);
