@@ -1,6 +1,7 @@
 package lib;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -61,24 +62,35 @@ public class HKDF {
 	}
 	public static byte[] expandLabel(byte[] secret, String label, byte[] context, int length)
 			throws NoSuchAlgorithmException, InvalidKeyException {
-		// TLS 1.3 HKDF label format
+
+		// Prefix the label with "tls13 " as per TLS 1.3 spec
 		String fullLabel = "tls13 " + label;
 		byte[] labelBytes = fullLabel.getBytes(StandardCharsets.UTF_8);
 		byte[] contextBytes = (context != null) ? context : new byte[0];
 
+		// Total length of the label structure
 		int hkdfLabelLength = 2 + 1 + labelBytes.length + 1 + contextBytes.length;
-		// int hkdfLabelLength = 2 + labelBytes.length + contextBytes.length;
+
+		if (labelBytes.length < 7 || labelBytes.length > 255) {
+			throw new IllegalArgumentException("Label length must be between 7 and 255 bytes");
+		}
+		if (contextBytes.length > 255) {
+			throw new IllegalArgumentException("Context length must be between 0 and 255 bytes");
+		}
+
 		ByteBuffer buffer = ByteBuffer.allocate(hkdfLabelLength);
 
-		// Write length (uint16)
-		buffer.put((byte) ((length >> 8) & 0xFF));
-		buffer.put((byte) ((length) & 0xFF));
+		// Set byte order to BIG_ENDIAN for TLS 1.3 spec compliance
+		buffer.order(ByteOrder.BIG_ENDIAN);
 
-		// Write label
+		// Write the output length (uint16)
+		buffer.putShort((short) length);
+
+		// Write the label length (uint8) and the label bytes
 		buffer.put((byte) labelBytes.length);
 		buffer.put(labelBytes);
 
-		// Write context
+		// Write the context length (uint8) and the context bytes
 		buffer.put((byte) contextBytes.length);
 		buffer.put(contextBytes);
 

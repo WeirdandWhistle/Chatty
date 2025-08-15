@@ -276,8 +276,9 @@ public class TLS {
 			KeyPairGenerator dh = KeyPairGenerator.getInstance("X25519");
 			key = dh.generateKeyPair();
 
-			XECPublicKey xecPub = (XECPublicKey) key.getPublic();
-			byte[] rawPubKey = xecPub.getU().toByteArray(); // 32 bytes
+			XECPublicKey serverXecPublicKey = (XECPublicKey) key.getPublic();
+			byte[] rawPubKey = serverXecPublicKey.getU().toByteArray(); // 32
+																		// bytes
 
 			System.out.println("key length:" + rawPubKey.length);
 			byte[] ks = {(KEY_SHARE >> 8) & 255, (KEY_SHARE & 255), 0, 36, 0, 0x1d, 0, 32};
@@ -319,7 +320,7 @@ public class TLS {
 
 			KeyFactory kf = KeyFactory.getInstance("X25519");
 			XECPublicKeySpec clientPublicKeySpec = new XECPublicKeySpec(paramSpec,
-					new BigInteger(clientPubKey));
+					new BigInteger(1, clientPubKey));
 
 			XECPublicKey clientPublicKey = (XECPublicKey) kf.generatePublic(clientPublicKeySpec);
 
@@ -330,6 +331,8 @@ public class TLS {
 			ka.init(secretKey);
 			ka.doPhase(clientPublicKey, true);
 			byte[] sharedSecret = ka.generateSecret();
+
+			System.out.println("sharedSecret.length " + sharedSecret.length);
 
 			byte[] serverHello = Util.add(version, serverRandom);
 			System.out.println("sessionLength " + sessionLength);
