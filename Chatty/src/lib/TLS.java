@@ -284,6 +284,8 @@ public class TLS {
 			byte[] ks = {(KEY_SHARE >> 8) & 255, (KEY_SHARE & 255), 0, 36, 0, 0x1d, 0, 32};
 			ks = Util.add(ks, rawPubKey);
 			byte[] ex = Util.add(sv, ks);
+
+			// for clients key
 			byte[] clientPubKey = extensions.get(KEY_SHARE);
 
 			ByteBuffer buf = ByteBuffer.wrap(clientPubKey);

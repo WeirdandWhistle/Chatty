@@ -2,7 +2,6 @@ package lib;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 
@@ -17,7 +16,7 @@ public class HKDF {
 	public final static byte[] zeros = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
-	// HKDF-Extract(salt, IKM) → PRK
+	// HKDF-Extract(salt, IKM)
 	public static byte[] extract(byte[] salt, byte[] ikm)
 			throws NoSuchAlgorithmException, InvalidKeyException {
 		if (salt == null || salt.length == 0) {
@@ -30,7 +29,7 @@ public class HKDF {
 		return mac.doFinal(ikm); // PRK
 	}
 
-	// HKDF-Expand(PRK, info, length) → OKM
+	// HKDF-Expand(PRK, info, length)
 	public static byte[] expand(byte[] prk, byte[] info, int outputLength)
 			throws NoSuchAlgorithmException, InvalidKeyException {
 		int hashLen = 32; // for SHA-256
@@ -65,7 +64,7 @@ public class HKDF {
 
 		// Prefix the label with "tls13 " as per TLS 1.3 spec
 		String fullLabel = "tls13 " + label;
-		byte[] labelBytes = fullLabel.getBytes(StandardCharsets.UTF_8);
+		byte[] labelBytes = fullLabel.getBytes();
 		byte[] contextBytes = (context != null) ? context : new byte[0];
 
 		// Total length of the label structure

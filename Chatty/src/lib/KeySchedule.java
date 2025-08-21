@@ -42,8 +42,8 @@ public class KeySchedule {
 		final byte[] empty = "".getBytes();
 
 		KeySchedule ks = new KeySchedule();
-
-		ks.early_secret = HKDF.extract(HKDF.zeros, HKDF.zeros);
+		// ---- not the problem checked with wiki + python ----
+		ks.early_secret = HKDF.extract(new byte[32], new byte[32]);
 		System.out.println("early_serect: " + Hex.toHexString(ks.early_secret) + " zeros length "
 				+ HKDF.zeros.length);
 		ks.derived_secret = HKDF.expandLabel(ks.early_secret, "derived", null, 32);
@@ -113,6 +113,8 @@ public class KeySchedule {
 	public void debugServerSecret() {
 		System.out.println("server_handshake_traffic_secret "
 				+ Hex.toHexString(server_handshake_traffic_secret));
+		System.out.println("client_handshake_traffic_secret "
+				+ Hex.toHexString(client_handshake_traffic_secret));
 	}
 	public byte[] getFinishedKey() throws InvalidKeyException, NoSuchAlgorithmException {
 		return HKDF.expandLabel(server_handshake_traffic_secret, "finished", "".getBytes(), 32);
