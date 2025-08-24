@@ -46,11 +46,13 @@ public class KeySchedule {
 		ks.early_secret = HKDF.extract(new byte[32], new byte[32]);
 		System.out.println("early_serect: " + Hex.toHexString(ks.early_secret) + " zeros length "
 				+ HKDF.zeros.length);
-		ks.derived_secret = HKDF.expandLabel(ks.early_secret, "derived", null, 32);
-
+		// maybe wrong?
+		ks.derived_secret = HKDF.expandLabel(ks.early_secret, "derived", empty, 32);
+		// probbley def wrong but cant find why
 		ks.handshake_secret = HKDF.extract(ks.derived_secret, sharedSecret);
 		// ks.handshake_secret = HKDF.extract(sharedSecret, ks.derived_secret);
 
+		// looks good to me
 		ks.server_handshake_traffic_secret = HKDF.expandLabel(ks.handshake_secret, "s hs traffic",
 				trascriptHash, 32);
 		ks.client_handshake_traffic_secret = HKDF.expandLabel(ks.handshake_secret, "c hs traffic",
