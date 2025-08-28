@@ -93,7 +93,7 @@ public class HKDF {
 		buffer.put((byte) contextBytes.length);
 		buffer.put(contextBytes);
 
-		byte[] hkdfLabel = buffer.array();
+		byte[] hkdfLabel = buffer.array().clone();
 		return expand(secret, hkdfLabel, length);
 	}
 	public static void runTestCases() throws InvalidKeyException, NoSuchAlgorithmException {

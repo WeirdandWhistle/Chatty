@@ -12,8 +12,6 @@ import javax.crypto.spec.SecretKeySpec;
 
 import org.bouncycastle.util.encoders.Hex;
 
-import com.google.gson.Gson;
-
 public class KeySchedule {
 
 	byte[] early_secret;
@@ -64,9 +62,9 @@ public class KeySchedule {
 		ks.clientKey = HKDF.expandLabel(ks.client_handshake_traffic_secret, "key", null, 16);
 		ks.clientIV = HKDF.expandLabel(ks.client_handshake_traffic_secret, "iv", null, 12);
 
-		String json = new Gson().toJson(ks, KeySchedule.class);
+		// String json = new Gson().toJson(ks, KeySchedule.class);
 
-		System.out.println(json);
+		// System.out.println(json);
 
 		return ks;
 	}

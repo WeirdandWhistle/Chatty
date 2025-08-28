@@ -283,6 +283,7 @@ public class TLS {
 			System.out.println("key length:" + rawPubKey.length);
 			byte[] ks = {(KEY_SHARE >> 8) & 255, (KEY_SHARE & 255), 0, 36, 0, 0x1d, 0, 32};
 			ks = Util.add(ks, rawPubKey);
+			System.out.println("serverPublic key: " + Hex.toHexString(rawPubKey));
 			byte[] ex = Util.add(sv, ks);
 
 			// for clients key
@@ -320,11 +321,19 @@ public class TLS {
 
 			ECGenParameterSpec ecSpec = new ECGenParameterSpec("X25519");
 
+			BigInteger clientBigInteger = new BigInteger(1, clientPubKey);
+
+			System.out.println("cbi: " + Hex.toHexString(clientBigInteger.toByteArray())
+					+ " vs raw: " + Hex.toHexString(clientPubKey));
+
 			KeyFactory kf = KeyFactory.getInstance("X25519");
 			XECPublicKeySpec clientPublicKeySpec = new XECPublicKeySpec(paramSpec,
-					new BigInteger(1, clientPubKey));
+					clientBigInteger);
 
 			XECPublicKey clientPublicKey = (XECPublicKey) kf.generatePublic(clientPublicKeySpec);
+
+			System.out.println("affter ke encdoing shit: "
+					+ Hex.toHexString(clientPublicKey.getU().toByteArray()));
 
 			XECPrivateKey secretKey = (XECPrivateKey) key.getPrivate();
 
@@ -361,8 +370,8 @@ public class TLS {
 
 			byte[] out = Util.add(recordHeaders, serverHello);
 
-			System.out.println("full server hello hexdump: ");
-			Util.printHexBytes(out);
+			// System.out.println("full server hello hexdump: ");
+			// Util.printHexBytes(out);
 
 			c.getOutputStream().write(out);
 			c.setSoTimeout(1000);
