@@ -45,7 +45,7 @@ public class KeySchedule {
 		System.out.println("early_serect: " + Hex.toHexString(ks.early_secret) + " zeros length "
 				+ HKDF.zeros.length);
 		// maybe wrong?
-		ks.derived_secret = HKDF.expandLabel(ks.early_secret, "derived", empty, 32);
+		ks.derived_secret = HKDF.expandLabel(ks.early_secret, "derived", null, 32);
 		// probbley def wrong but cant find why
 		ks.handshake_secret = HKDF.extract(ks.derived_secret, sharedSecret);
 		// ks.handshake_secret = HKDF.extract(sharedSecret, ks.derived_secret);

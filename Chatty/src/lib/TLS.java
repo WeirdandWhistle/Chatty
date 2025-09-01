@@ -282,6 +282,7 @@ public class TLS {
 
 			System.out.println("key length:" + rawPubKey.length);
 			byte[] ks = {(KEY_SHARE >> 8) & 255, (KEY_SHARE & 255), 0, 36, 0, 0x1d, 0, 32};
+			rawPubKey = Util.reverse(rawPubKey);
 			ks = Util.add(ks, rawPubKey);
 			System.out.println("serverPublic key: " + Hex.toHexString(rawPubKey));
 			byte[] ex = Util.add(sv, ks);
@@ -321,7 +322,7 @@ public class TLS {
 
 			ECGenParameterSpec ecSpec = new ECGenParameterSpec("X25519");
 
-			BigInteger clientBigInteger = new BigInteger(1, clientPubKey);
+			BigInteger clientBigInteger = new BigInteger(1, Util.reverse(clientPubKey));
 
 			System.out.println("cbi: " + Hex.toHexString(clientBigInteger.toByteArray())
 					+ " vs raw: " + Hex.toHexString(clientPubKey));

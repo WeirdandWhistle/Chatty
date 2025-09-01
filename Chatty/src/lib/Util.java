@@ -245,4 +245,11 @@ public abstract class Util {
 		}
 		return c;
 	}
+	public static byte[] reverse(byte[] a) {
+		byte[] reversed = new byte[a.length];
+		for (int i = 0; i < a.length; i++) {
+			reversed[i] = a[(a.length - 1) - i];
+		}
+		return reversed;
+	}
 }
